@@ -221,7 +221,7 @@ addToggle(safety, 174, "Face Check", "UI configuration option", Settings.FaceChe
 
 local playerPage = createPage("Player")
 local movement = section(playerPage, "Movement Preview", 110)
-addSlider(movement, 48, "Walk SpeedValue", 8, 32, Settings.WalkSpeedPreview, function(v) Settings.WalkSpeedPreview = v end)
+addSlider(movement, 48, "Walk Speed Value", 8, 32, Settings.WalkSpeedPreview, function(v) Settings.WalkSpeedPreview = v end)
 local visuals = createPage("Visuals")
 local visualCard = section(visuals, "Interface", 105)
 addToggle(visualCard, 49, "Show Player Names", "UI configuration option", Settings.ShowNames, function(v) Settings.ShowNames = v end)
@@ -234,20 +234,19 @@ local function isInMatch()
 	local character = localPlayer.Character
 	if not character or not character:FindFirstChild("HumanoidRootPart") then return false end
 	
-	-- In ABA, when players are in the lobby, they are usually in the safe lobby hub area or have match state indicators.
-	-- We verify if an active match map/arena folder exists in workspace or if the player is teleported/spawned away from the lobby spawn.
+	-- Check if player is spawned inside an active game map or arena
 	local mapsFolder = workspace:FindFirstChild("Map") or workspace:FindFirstChild("Maps") or workspace:FindFirstChild("Arena")
 	if mapsFolder and #mapsFolder:GetChildren() > 0 then
 		return true
 	end
 	
-	-- Alternatively, check player GUI elements or match timer HUD elements that indicate an active match
+	-- Check for match HUD components
 	local matchHud = playerGui:FindFirstChild("MatchHUD") or playerGui:FindFirstChild("GameGui") or playerGui:FindFirstChild("CombatGui")
 	if matchHud and matchHud.Enabled then
 		return true
 	end
 	
-	-- Fallback check: Check if the player is outside the lobby spawn coordinate zone (Lobby Y is typically around 0-10 or specific coordinates)
+	-- Position fallback: Lobby Y is near ground level; matches are usually separated or offset
 	local rootPos = character.HumanoidRootPart.Position
 	if math.abs(rootPos.Y - 3) > 35 or math.abs(rootPos.X) > 200 or math.abs(rootPos.Z) > 200 then
 		return true
@@ -256,7 +255,7 @@ local function isInMatch()
 	return false
 end
 
--- Intelligent team and deathmatch enemy detector
+-- Team and deathmatch enemy detector ensuring it targets actual players dynamically
 local function getNearestTarget()
 	local character = localPlayer.Character
 	if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
@@ -272,7 +271,7 @@ local function getNearestTarget()
 			if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
 				local isEnemy = true
 				
-				-- Check team rules: if both players have teams and they match, they are teammates (ignored in deathmatch/FFA)
+				-- Handle team checks: skip if same team, target if deathmatch/FFA or opposite team
 				if localPlayer.Team and player.Team and localPlayer.Team == player.Team then
 					isEnemy = false
 				end
@@ -288,7 +287,7 @@ local function getNearestTarget()
 		end
 	end
 	
-	-- Fallback check for training dummies or bots if no valid players match team/deathmatch criteria
+	-- Fallback to training dummies or models if no valid player targets are found
 	if not nearestTarget then
 		for _, obj in ipairs(workspace:GetChildren()) do
 			if obj ~= character and obj:IsA("Model") and obj:FindFirstChild("HumanoidRootPart") then
@@ -307,7 +306,7 @@ local function getNearestTarget()
 	return nearestTarget
 end
 
--- Simulates human-like player movement, locking in camera/orientation, and auto-attacking opponents only when actively in-match (skipping lobby completely)
+-- Fully synchronized loop: completely dormant in lobby, locks onto player targets and moves/attacks instantly once match starts
 task.spawn(function()
 	local skillKeys = {Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three, Enum.KeyCode.Four}
 	local skillIndex = 1
@@ -324,6 +323,7 @@ task.spawn(function()
 				if targetRoot then
 					local distance = (rootPart.Position - targetRoot.Position).Magnitude
 					
+					-- Move directly towards the target player/enemy
 					if distance > 6 then
 						humanoid:MoveTo(targetRoot.Position)
 					else
@@ -331,10 +331,10 @@ task.spawn(function()
 						humanoid:MoveTo(targetRoot.Position + randomOffset)
 					end
 					
-					-- Lock-in orientation facing towards target
+					-- Lock-in rotation facing the target directly
 					rootPart.CFrame = CFrame.new(rootPart.Position, Vector3.new(targetRoot.Position.X, targetRoot.Position.Y, targetRoot.Position.Z))
 					
-					-- Attack gate when in range
+					-- Execute attacks when in close proximity range
 					if distance <= 10 then
 						pcall(function()
 							VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
@@ -357,7 +357,7 @@ task.spawn(function()
 	end
 end)
 
-addToggle(farmCard, 49, "Auto Play", "Strictly inactive in lobby; locks in & attacks in-match", Settings.AutoPlay, function(v)
+addToggle(farmCard, 49, "Auto Play", "Inactive in lobby; tracks & attacks players in-match", Settings.AutoPlay, function(v)
 	Settings.AutoPlay = v
 end)
 
