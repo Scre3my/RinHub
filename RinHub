@@ -229,7 +229,7 @@ addToggle(visualCard, 49, "Show Player Names", "UI configuration option", Settin
 local farm = createPage("Farm")
 local farmCard = section(farm, "Training", 105)
 
--- Fixed target validation to correctly check opposing team players by verifying teams/attributes
+-- Finds the closest target from both players and workspace models/dummies
 local function getNearestTarget()
 	local character = localPlayer.Character
 	if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
@@ -237,29 +237,20 @@ local function getNearestTarget()
 	local nearestTarget, shortestDistance = nil, math.huge
 	
 	for _, player in ipairs(Players:GetPlayers()) do
-		if player ~= localPlayer then
-			-- Check if they are on a different team (if ABA uses teams) or just any other valid player character
-			if player.Character then
-				local targetChar = player.Character
-				local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
-				local targetHumanoid = targetChar:FindFirstChildOfClass("Humanoid")
-				
-				-- Ensure they are alive and have health
-				if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
-					-- If teams exist, optionally filter out teammates. If Kills/Death Free-For-All mode, target everyone.
-					if not localPlayer.Team or player.Team ~= localPlayer.Team then
-						local dist = (myRoot.Position - targetRoot.Position).Magnitude
-						if dist < shortestDistance then
-							shortestDistance = dist
-							nearestTarget = targetRoot
-						end
-					end
+		if player ~= localPlayer and player.Character then
+			local targetChar = player.Character
+			local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+			local targetHumanoid = targetChar:FindFirstChildOfClass("Humanoid")
+			if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
+				local dist = (myRoot.Position - targetRoot.Position).Magnitude
+				if dist < shortestDistance then
+					shortestDistance = dist
+					nearestTarget = targetRoot
 				end
 			end
 		end
 	end
 	
-	-- Fallback to any valid opponent/dummy in workspace if no team player found
 	if not nearestTarget then
 		for _, obj in ipairs(workspace:GetChildren()) do
 			if obj ~= character and obj:IsA("Model") and obj:FindFirstChild("HumanoidRootPart") then
@@ -278,13 +269,13 @@ local function getNearestTarget()
 	return nearestTarget
 end
 
--- Robust AutoPlay loop with optimized action intervals and proper coordinate locking
+-- Simulates human-like player movement, auto-approaching targets, locking camera orientation, and triggering M1/skills on close proximity
 task.spawn(function()
 	local skillKeys = {Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three, Enum.KeyCode.Four}
 	local skillIndex = 1
 	
 	while true do
-		task.wait(0.1)
+		task.wait(0.05)
 		if Settings.AutoPlay then
 			local character = localPlayer.Character
 			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -293,32 +284,44 @@ task.spawn(function()
 			if character and humanoid and rootPart and humanoid.Health > 0 then
 				local targetRoot = getNearestTarget()
 				if targetRoot then
-					if (rootPart.Position - targetRoot.Position).Magnitude > 4 then
+					local distance = (rootPart.Position - targetRoot.Position).Magnitude
+					
+					-- Smoothly move toward the target if out of range, or simulate close-combat positioning
+					if distance > 6 then
 						humanoid:MoveTo(targetRoot.Position)
+					else
+						-- When close, gently orbit/step towards them to simulate real player movement
+						local randomOffset = Vector3.new(math.random(-3, 3), 0, math.random(-3, 3))
+						humanoid:MoveTo(targetRoot.Position + randomOffset)
 					end
+					
+					-- Instantly face the target to ensure attacks hit
 					rootPart.CFrame = CFrame.new(rootPart.Position, Vector3.new(targetRoot.Position.X, rootPart.Position.Y, targetRoot.Position.Z))
 					
-					pcall(function()
-						VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-						task.wait(0.03)
-						VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-					end)
-					
-					local currentKey = skillKeys[skillIndex]
-					pcall(function()
-						VirtualInputManager:SendKeyEvent(true, currentKey, false, game)
-						task.wait(0.03)
-						VirtualInputManager:SendKeyEvent(false, currentKey, false, game)
-					end)
-					
-					skillIndex = (skillIndex % 4) + 1
+					-- Attack automatically when close enough (< 10 studs)
+					if distance <= 10 then
+						pcall(function()
+							VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+							task.wait(0.02)
+							VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+						end)
+						
+						local currentKey = skillKeys[skillIndex]
+						pcall(function()
+							VirtualInputManager:SendKeyEvent(true, currentKey, false, game)
+							task.wait(0.02)
+							VirtualInputManager:SendKeyEvent(false, currentKey, false, game)
+						end)
+						
+						skillIndex = (skillIndex % 4) + 1
+					end
 				end
 			end
 		end
 	end
 end)
 
-addToggle(farmCard, 49, "Auto Play", "Targets nearest player, handles M1 combos & skills 1-4", Settings.AutoPlay, function(v)
+addToggle(farmCard, 49, "Auto Play", "Simulates player movement, tracks targets & auto-attacks", Settings.AutoPlay, function(v)
 	Settings.AutoPlay = v
 end)
 
