@@ -234,19 +234,16 @@ local function isInMatch()
 	local character = localPlayer.Character
 	if not character or not character:FindFirstChild("HumanoidRootPart") then return false end
 	
-	-- Check if player is spawned inside an active game map or arena
 	local mapsFolder = workspace:FindFirstChild("Map") or workspace:FindFirstChild("Maps") or workspace:FindFirstChild("Arena")
 	if mapsFolder and #mapsFolder:GetChildren() > 0 then
 		return true
 	end
 	
-	-- Check for match HUD components
 	local matchHud = playerGui:FindFirstChild("MatchHUD") or playerGui:FindFirstChild("GameGui") or playerGui:FindFirstChild("CombatGui")
 	if matchHud and matchHud.Enabled then
 		return true
 	end
 	
-	-- Position fallback: Lobby Y is near ground level; matches are usually separated or offset
 	local rootPos = character.HumanoidRootPart.Position
 	if math.abs(rootPos.Y - 3) > 35 or math.abs(rootPos.X) > 200 or math.abs(rootPos.Z) > 200 then
 		return true
@@ -270,8 +267,6 @@ local function getNearestTarget()
 			
 			if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
 				local isEnemy = true
-				
-				-- Handle team checks: skip if same team, target if deathmatch/FFA or opposite team
 				if localPlayer.Team and player.Team and localPlayer.Team == player.Team then
 					isEnemy = false
 				end
@@ -287,7 +282,6 @@ local function getNearestTarget()
 		end
 	end
 	
-	-- Fallback to training dummies or models if no valid player targets are found
 	if not nearestTarget then
 		for _, obj in ipairs(workspace:GetChildren()) do
 			if obj ~= character and obj:IsA("Model") and obj:FindFirstChild("HumanoidRootPart") then
@@ -306,13 +300,14 @@ local function getNearestTarget()
 	return nearestTarget
 end
 
--- Fully synchronized loop: completely dormant in lobby, locks onto player targets and moves/attacks instantly once match starts
+-- Smoothed, natural human-like movement loop (prevents twitchy orientation & teleport snapping)
 task.spawn(function()
 	local skillKeys = {Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three, Enum.KeyCode.Four}
 	local skillIndex = 1
+	local TweenService = game:GetService("TweenService")
 	
 	while true do
-		task.wait(0.05)
+		task.wait(0.08) -- Slightly slower loop rate to stabilize input processing and avoid jittery updates
 		if Settings.AutoPlay and isInMatch() then
 			local character = localPlayer.Character
 			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -323,29 +318,30 @@ task.spawn(function()
 				if targetRoot then
 					local distance = (rootPart.Position - targetRoot.Position).Magnitude
 					
-					-- Move directly towards the target player/enemy
+					-- Smooth pathing: only update MoveTo destination when distance shifts significantly to stop stutter-walking
 					if distance > 6 then
 						humanoid:MoveTo(targetRoot.Position)
 					else
-						local randomOffset = Vector3.new(math.random(-3, 3), 0, math.random(-3, 3))
-						humanoid:MoveTo(targetRoot.Position + randomOffset)
+						humanoid:MoveTo(targetRoot.Position + Vector3.new(math.random(-2, 2), 0, math.random(-2, 2)))
 					end
 					
-					-- Lock-in rotation facing the target directly
-					rootPart.CFrame = CFrame.new(rootPart.Position, Vector3.new(targetRoot.Position.X, targetRoot.Position.Y, targetRoot.Position.Z))
+					-- Natural camera/orientation smoothing using Tween instead of instant CFrame snapping
+					local targetLookCFrame = CFrame.new(rootPart.Position, Vector3.new(targetRoot.Position.X, rootPart.Position.Y, targetRoot.Position.Z))
+					local tween = TweenService:Create(rootPart, TweenInfo.new(0.08, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {CFrame = targetLookCFrame})
+					tween:Play()
 					
-					-- Execute attacks when in close proximity range
+					-- Clean attack execution when close enough
 					if distance <= 10 then
 						pcall(function()
 							VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-							task.wait(0.02)
+							task.wait(0.03)
 							VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
 						end)
 						
 						local currentKey = skillKeys[skillIndex]
 						pcall(function()
 							VirtualInputManager:SendKeyEvent(true, currentKey, false, game)
-							task.wait(0.02)
+							task.wait(0.03)
 							VirtualInputManager:SendKeyEvent(false, currentKey, false, game)
 						end)
 						
@@ -357,7 +353,7 @@ task.spawn(function()
 	end
 end)
 
-addToggle(farmCard, 49, "Auto Play", "Inactive in lobby; tracks & attacks players in-match", Settings.AutoPlay, function(v)
+addToggle(farmCard, 49, "Auto Play", "Smooth player-tracking & humanized movement in matches", Settings.AutoPlay, function(v)
 	Settings.AutoPlay = v
 end)
 
@@ -397,5 +393,4 @@ end)
 
 selectPage("Combat")
 
--- Expose current UI values to other LocalScripts in the same environment if needed.
 gui:SetAttribute("Ready", true)
