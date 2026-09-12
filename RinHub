@@ -221,7 +221,7 @@ addToggle(safety, 174, "Face Check", "UI configuration option", Settings.FaceChe
 
 local playerPage = createPage("Player")
 local movement = section(playerPage, "Movement Preview", 110)
-addSlider(movement, 48, "Walk Speed Value", 8, 32, Settings.WalkSpeedPreview, function(v) Settings.WalkSpeedPreview = v end)
+addSlider(movement, 48, "Walk SpeedValue", 8, 32, Settings.WalkSpeedPreview, function(v) Settings.WalkSpeedPreview = v end)
 local visuals = createPage("Visuals")
 local visualCard = section(visuals, "Interface", 105)
 addToggle(visualCard, 49, "Show Player Names", "UI configuration option", Settings.ShowNames, function(v) Settings.ShowNames = v end)
@@ -229,40 +229,31 @@ addToggle(visualCard, 49, "Show Player Names", "UI configuration option", Settin
 local farm = createPage("Farm")
 local farmCard = section(farm, "Training", 105)
 
--- Checks if the local player is currently inside an active match arena (not in the lobby)
+-- Precise lobby check for Anime Battle Arena (ABA) matches
 local function isInMatch()
-	-- In ABA, players in the lobby typically have specific attributes/states or are located in lobby areas, 
-	-- whereas active matches spawn players into map folders or set specific game values.
-	-- We can verify if the character is spawned inside an active game map folder or if game maps exist in workspace.
-	local matchFolders = {"Map", "Maps", "Arena", "Arenas", "MatchFolder"}
-	for _, name in ipairs(matchFolders) do
-		local folder = workspace:FindFirstChild(name)
-		if folder and #folder:GetChildren() > 0 then
-			return true
-		end
-	end
-	
-	-- Fallback check: if the local player has a high enough workspace vertical or map distance, or if we look at player state/leaderstats
 	local character = localPlayer.Character
-	if character and character:FindFirstChild("HumanoidRootPart") then
-		-- If not positioned at standard lobby spawn coordinates (e.g., Y coordinate is outside lobby level)
-		if math.abs(character.HumanoidRootPart.Position.Y) > 50 then
-			return true
-		end
+	if not character or not character:FindFirstChild("HumanoidRootPart") then return false end
+	
+	-- In ABA, when players are in the lobby, they are usually in the safe lobby hub area or have match state indicators.
+	-- We verify if an active match map/arena folder exists in workspace or if the player is teleported/spawned away from the lobby spawn.
+	local mapsFolder = workspace:FindFirstChild("Map") or workspace:FindFirstChild("Maps") or workspace:FindFirstChild("Arena")
+	if mapsFolder and #mapsFolder:GetChildren() > 0 then
+		return true
 	end
 	
-	-- Default check: if leaderstats show an active match state or if there are active players spread out
-	local leaderstats = localPlayer:FindFirstChild("leaderstats")
-	if leaderstats then
-		-- Some servers use round status or values
-		local status = leaderstats:FindFirstChild("Status") or leaderstats:FindFirstChild("State")
-		if status and (status.Value == "InMatch" or status.Value == "Fighting" or status.Value == "Playing") then
-			return true
-		end
+	-- Alternatively, check player GUI elements or match timer HUD elements that indicate an active match
+	local matchHud = playerGui:FindFirstChild("MatchHUD") or playerGui:FindFirstChild("GameGui") or playerGui:FindFirstChild("CombatGui")
+	if matchHud and matchHud.Enabled then
+		return true
 	end
 	
-	-- General fallback: if characters are present outside the main spawn area, treat as match
-	return true
+	-- Fallback check: Check if the player is outside the lobby spawn coordinate zone (Lobby Y is typically around 0-10 or specific coordinates)
+	local rootPos = character.HumanoidRootPart.Position
+	if math.abs(rootPos.Y - 3) > 35 or math.abs(rootPos.X) > 200 or math.abs(rootPos.Z) > 200 then
+		return true
+	end
+	
+	return false
 end
 
 -- Intelligent team and deathmatch enemy detector
@@ -281,7 +272,7 @@ local function getNearestTarget()
 			if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
 				local isEnemy = true
 				
-				-- Check team rules: if both players have teams and they match, they are teammates (ignored in team games, kept in deathmatch/FFA)
+				-- Check team rules: if both players have teams and they match, they are teammates (ignored in deathmatch/FFA)
 				if localPlayer.Team and player.Team and localPlayer.Team == player.Team then
 					isEnemy = false
 				end
@@ -316,7 +307,7 @@ local function getNearestTarget()
 	return nearestTarget
 end
 
--- Simulates human-like player movement, auto-approaching targets, locking camera orientation, and triggering M1/skills only when inside an active match
+-- Simulates human-like player movement, locking in camera/orientation, and auto-attacking opponents only when actively in-match (skipping lobby completely)
 task.spawn(function()
 	local skillKeys = {Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three, Enum.KeyCode.Four}
 	local skillIndex = 1
@@ -340,8 +331,10 @@ task.spawn(function()
 						humanoid:MoveTo(targetRoot.Position + randomOffset)
 					end
 					
+					-- Lock-in orientation facing towards target
 					rootPart.CFrame = CFrame.new(rootPart.Position, Vector3.new(targetRoot.Position.X, targetRoot.Position.Y, targetRoot.Position.Z))
 					
+					-- Attack gate when in range
 					if distance <= 10 then
 						pcall(function()
 							VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
@@ -364,7 +357,7 @@ task.spawn(function()
 	end
 end)
 
-addToggle(farmCard, 49, "Auto Play", "Active in matches only: detects enemies, teams & auto-attacks", Settings.AutoPlay, function(v)
+addToggle(farmCard, 49, "Auto Play", "Strictly inactive in lobby; locks in & attacks in-match", Settings.AutoPlay, function(v)
 	Settings.AutoPlay = v
 end)
 
@@ -385,7 +378,7 @@ local navOrder = {"Combat", "Player", "Visuals", "Farm", "Misc", "Settings"}
 for index, name in ipairs(navOrder) do
 	local button = make("TextButton", {
 		Name = name .. "Button", LayoutOrder = index, Size = UDim2.new(1, 0, 0, 43),
-		BackgroundColor3 = Theme.panel, BorderSizePixel = 0, Text = string.upper(name) + "        ›",
+		BackgroundColor3 = Theme.panel, BorderSizePixel = 0, Text = string.upper(name) .. "        ›",
 		TextColor3 = Theme.muted, TextSize = 13, Font = Enum.Font.GothamBold,
 		TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = false,
 	}, sidebar)
