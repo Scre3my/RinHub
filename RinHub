@@ -7,7 +7,6 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local localPlayer = Players.LocalPlayer
@@ -230,15 +229,30 @@ addToggle(visualCard, 49, "Show Player Names", "UI configuration option", Settin
 local farm = createPage("Farm")
 local farmCard = section(farm, "Training", 105)
 
--- Fixed target validation to look strictly at living opponents in Anime Battle Arena
+-- Improved targeting logic handling both players and training dummy models safely
 local function getNearestTarget()
 	local character = localPlayer.Character
 	if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
 	local myRoot = character.HumanoidRootPart
 	local nearestTarget, shortestDistance = nil, math.huge
 	
+	-- Check standard workspace characters / dummies
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj ~= character and obj:FindFirstChild("HumanoidRootPart") and obj:FindFirstChildOfClass("Humanoid") then
+			local hum = obj:FindFirstChildOfClass("Humanoid")
+			if hum.Health > 0 then
+				local dist = (myRoot.Position - obj.HumanoidRootPart.Position).Magnitude
+				if dist < shortestDistance then
+					shortestDistance = dist
+					nearestTarget = obj.HumanoidRootPart
+				end
+			end
+		end
+	end
+	
+	-- Also check standard players folder
 	for _, player in ipairs(Players:GetPlayers()) do
-		if player ~= localPlayer and player.Character then
+		if player ~= localPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
 			local targetChar = player.Character
 			local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
 			local targetHumanoid = targetChar:FindFirstChildOfClass("Humanoid")
@@ -251,16 +265,17 @@ local function getNearestTarget()
 			end
 		end
 	end
+	
 	return nearestTarget
 end
 
--- Proper Anime Battle Arena execution loop handling full M1 combat combos and sequential skills 1-4
+-- Robust AutoPlay loop with optimized action intervals and proper coordinate locking
 task.spawn(function()
 	local skillKeys = {Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three, Enum.KeyCode.Four}
 	local skillIndex = 1
 	
 	while true do
-		task.wait(0.15)
+		task.wait(0.1)
 		if Settings.AutoPlay then
 			local character = localPlayer.Character
 			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -269,22 +284,24 @@ task.spawn(function()
 			if character and humanoid and rootPart and humanoid.Health > 0 then
 				local targetRoot = getNearestTarget()
 				if targetRoot then
-					-- Direct path movement and locking rotation onto the target
-					humanoid:MoveTo(targetRoot.Position)
+					-- Stop fighting the built-in pathfinder by keeping within close melee range or stepping smoothly
+					if (rootPart.Position - targetRoot.Position).Magnitude > 4 then
+						humanoid:MoveTo(targetRoot.Position)
+					end
 					rootPart.CFrame = CFrame.new(rootPart.Position, Vector3.new(targetRoot.Position.X, rootPart.Position.Y, targetRoot.Position.Z))
 					
-					-- Execute M1 combat sequence (Left Click)
+					-- Execute M1 combo click simulation
 					pcall(function()
 						VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-						task.wait(0.04)
+						task.wait(0.03)
 						VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
 					end)
 					
-					-- Execute skills 1, 2, 3, 4 sequentially just like standard auto play rotations
+					-- Execute skills 1 through 4 sequentially
 					local currentKey = skillKeys[skillIndex]
 					pcall(function()
 						VirtualInputManager:SendKeyEvent(true, currentKey, false, game)
-						task.wait(0.04)
+						task.wait(0.03)
 						VirtualInputManager:SendKeyEvent(false, currentKey, false, game)
 					end)
 					
@@ -328,7 +345,8 @@ for index, name in ipairs(navOrder) do
 	navButtons[name] = button
 end
 
-UserInputService.InputBegan:Connect(function(input, processed)
+local uisConnection
+uisConnection = UserInputService.InputBegan:Connect(function(input, processed)
 	if not processed and input.KeyCode == Enum.KeyCode.RightShift then main.Visible = not main.Visible end
 end)
 
