@@ -7,9 +7,8 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local VirtualUser = game:GetService("VirtualUser")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local localPlayer = Players.LocalPlayer
 local playerGui = localPlayer:WaitForChild("PlayerGui")
@@ -231,7 +230,7 @@ addToggle(visualCard, 49, "Show Player Names", "UI configuration option", Settin
 local farm = createPage("Farm")
 local farmCard = section(farm, "Training", 105)
 
--- Fully integrated Anime Battle Arena AutoPlay execution loop matching typical hub features (auto-targeting, movement spacing, M1 clicking, and skills 1-4 activation)
+-- Fixed target validation to look strictly at living opponents in Anime Battle Arena
 local function getNearestTarget()
 	local character = localPlayer.Character
 	if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
@@ -255,12 +254,13 @@ local function getNearestTarget()
 	return nearestTarget
 end
 
--- Automated execution ticker loop
+-- Proper Anime Battle Arena execution loop handling full M1 combat combos and sequential skills 1-4
 task.spawn(function()
 	local skillKeys = {Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three, Enum.KeyCode.Four}
-	local lastSkillIndex = 1
+	local skillIndex = 1
+	
 	while true do
-		task.wait(0.2)
+		task.wait(0.15)
 		if Settings.AutoPlay then
 			local character = localPlayer.Character
 			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -269,28 +269,26 @@ task.spawn(function()
 			if character and humanoid and rootPart and humanoid.Health > 0 then
 				local targetRoot = getNearestTarget()
 				if targetRoot then
-					-- Move towards and face target automatically
+					-- Direct path movement and locking rotation onto the target
 					humanoid:MoveTo(targetRoot.Position)
 					rootPart.CFrame = CFrame.new(rootPart.Position, Vector3.new(targetRoot.Position.X, rootPart.Position.Y, targetRoot.Position.Z))
 					
-					-- Execute M1 combo click simulation
+					-- Execute M1 combat sequence (Left Click)
 					pcall(function()
-						VirtualUser:Button1Down(Vector2.new(0,0))
-						task.wait(0.05)
-						VirtualUser:Button1Up(Vector2.new(0,0))
+						VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+						task.wait(0.04)
+						VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
 					end)
 					
-					-- Cycle through skill slots 1 to 4
-					local keyToPress = skillKeys[lastSkillIndex]
+					-- Execute skills 1, 2, 3, 4 sequentially just like standard auto play rotations
+					local currentKey = skillKeys[skillIndex]
 					pcall(function()
-						VirtualUser:Button2Down(Vector2.new(0,0)) -- dummy focus if needed
-						VirtualUser:Button2Up(Vector2.new(0,0))
-						UserInputService.InputBegan:Fire({KeyCode = keyToPress, UserInputType = Enum.UserInputType.Keyboard}, false)
-						task.wait(0.05)
-						UserInputService.InputEnded:Fire({KeyCode = keyToPress, UserInputType = Enum.UserInputType.Keyboard}, false)
+						VirtualInputManager:SendKeyEvent(true, currentKey, false, game)
+						task.wait(0.04)
+						VirtualInputManager:SendKeyEvent(false, currentKey, false, game)
 					end)
 					
-					lastSkillIndex = (lastSkillIndex % 4) + 1
+					skillIndex = (skillIndex % 4) + 1
 				end
 			end
 		end
