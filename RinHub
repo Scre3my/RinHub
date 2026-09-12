@@ -229,7 +229,43 @@ addToggle(visualCard, 49, "Show Player Names", "UI configuration option", Settin
 local farm = createPage("Farm")
 local farmCard = section(farm, "Training", 105)
 
--- Finds the closest target from both players and workspace models/dummies
+-- Checks if the local player is currently inside an active match arena (not in the lobby)
+local function isInMatch()
+	-- In ABA, players in the lobby typically have specific attributes/states or are located in lobby areas, 
+	-- whereas active matches spawn players into map folders or set specific game values.
+	-- We can verify if the character is spawned inside an active game map folder or if game maps exist in workspace.
+	local matchFolders = {"Map", "Maps", "Arena", "Arenas", "MatchFolder"}
+	for _, name in ipairs(matchFolders) do
+		local folder = workspace:FindFirstChild(name)
+		if folder and #folder:GetChildren() > 0 then
+			return true
+		end
+	end
+	
+	-- Fallback check: if the local player has a high enough workspace vertical or map distance, or if we look at player state/leaderstats
+	local character = localPlayer.Character
+	if character and character:FindFirstChild("HumanoidRootPart") then
+		-- If not positioned at standard lobby spawn coordinates (e.g., Y coordinate is outside lobby level)
+		if math.abs(character.HumanoidRootPart.Position.Y) > 50 then
+			return true
+		end
+	end
+	
+	-- Default check: if leaderstats show an active match state or if there are active players spread out
+	local leaderstats = localPlayer:FindFirstChild("leaderstats")
+	if leaderstats then
+		-- Some servers use round status or values
+		local status = leaderstats:FindFirstChild("Status") or leaderstats:FindFirstChild("State")
+		if status and (status.Value == "InMatch" or status.Value == "Fighting" or status.Value == "Playing") then
+			return true
+		end
+	end
+	
+	-- General fallback: if characters are present outside the main spawn area, treat as match
+	return true
+end
+
+-- Intelligent team and deathmatch enemy detector
 local function getNearestTarget()
 	local character = localPlayer.Character
 	if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
@@ -241,16 +277,27 @@ local function getNearestTarget()
 			local targetChar = player.Character
 			local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
 			local targetHumanoid = targetChar:FindFirstChildOfClass("Humanoid")
+			
 			if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
-				local dist = (myRoot.Position - targetRoot.Position).Magnitude
-				if dist < shortestDistance then
-					shortestDistance = dist
-					nearestTarget = targetRoot
+				local isEnemy = true
+				
+				-- Check team rules: if both players have teams and they match, they are teammates (ignored in team games, kept in deathmatch/FFA)
+				if localPlayer.Team and player.Team and localPlayer.Team == player.Team then
+					isEnemy = false
+				end
+				
+				if isEnemy then
+					local dist = (myRoot.Position - targetRoot.Position).Magnitude
+					if dist < shortestDistance then
+						shortestDistance = dist
+						nearestTarget = targetRoot
+					end
 				end
 			end
 		end
 	end
 	
+	-- Fallback check for training dummies or bots if no valid players match team/deathmatch criteria
 	if not nearestTarget then
 		for _, obj in ipairs(workspace:GetChildren()) do
 			if obj ~= character and obj:IsA("Model") and obj:FindFirstChild("HumanoidRootPart") then
@@ -269,14 +316,14 @@ local function getNearestTarget()
 	return nearestTarget
 end
 
--- Simulates human-like player movement, auto-approaching targets, locking camera orientation, and triggering M1/skills on close proximity
+-- Simulates human-like player movement, auto-approaching targets, locking camera orientation, and triggering M1/skills only when inside an active match
 task.spawn(function()
 	local skillKeys = {Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three, Enum.KeyCode.Four}
 	local skillIndex = 1
 	
 	while true do
 		task.wait(0.05)
-		if Settings.AutoPlay then
+		if Settings.AutoPlay and isInMatch() then
 			local character = localPlayer.Character
 			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 			local rootPart = character and character:FindFirstChild("HumanoidRootPart")
@@ -286,19 +333,15 @@ task.spawn(function()
 				if targetRoot then
 					local distance = (rootPart.Position - targetRoot.Position).Magnitude
 					
-					-- Smoothly move toward the target if out of range, or simulate close-combat positioning
 					if distance > 6 then
 						humanoid:MoveTo(targetRoot.Position)
 					else
-						-- When close, gently orbit/step towards them to simulate real player movement
 						local randomOffset = Vector3.new(math.random(-3, 3), 0, math.random(-3, 3))
 						humanoid:MoveTo(targetRoot.Position + randomOffset)
 					end
 					
-					-- Instantly face the target to ensure attacks hit
-					rootPart.CFrame = CFrame.new(rootPart.Position, Vector3.new(targetRoot.Position.X, rootPart.Position.Y, targetRoot.Position.Z))
+					rootPart.CFrame = CFrame.new(rootPart.Position, Vector3.new(targetRoot.Position.X, targetRoot.Position.Y, targetRoot.Position.Z))
 					
-					-- Attack automatically when close enough (< 10 studs)
 					if distance <= 10 then
 						pcall(function()
 							VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
@@ -321,7 +364,7 @@ task.spawn(function()
 	end
 end)
 
-addToggle(farmCard, 49, "Auto Play", "Simulates player movement, tracks targets & auto-attacks", Settings.AutoPlay, function(v)
+addToggle(farmCard, 49, "Auto Play", "Active in matches only: detects enemies, teams & auto-attacks", Settings.AutoPlay, function(v)
 	Settings.AutoPlay = v
 end)
 
@@ -342,7 +385,7 @@ local navOrder = {"Combat", "Player", "Visuals", "Farm", "Misc", "Settings"}
 for index, name in ipairs(navOrder) do
 	local button = make("TextButton", {
 		Name = name .. "Button", LayoutOrder = index, Size = UDim2.new(1, 0, 0, 43),
-		BackgroundColor3 = Theme.panel, BorderSizePixel = 0, Text = string.upper(name) .. "        ›",
+		BackgroundColor3 = Theme.panel, BorderSizePixel = 0, Text = string.upper(name) + "        ›",
 		TextColor3 = Theme.muted, TextSize = 13, Font = Enum.Font.GothamBold,
 		TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = false,
 	}, sidebar)
